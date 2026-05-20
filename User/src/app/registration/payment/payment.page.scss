@@ -1,0 +1,208 @@
+ion-content {
+  --background: linear-gradient(180deg, #3b0a18, #1a050b);
+}
+
+.top-logo {
+  text-align: center;
+  padding-top: 30px;
+}
+
+.top-logo img {
+  width: 50%;
+  max-width: 160px;
+}
+
+.card {
+  margin-top: 110px;
+  background: #ffffff;
+  border-top-left-radius: 35px;
+  border-top-right-radius: 35px;
+  padding: 28px 20px 40px;
+  text-align: center;
+  min-height: calc(100vh - 110px);
+}
+
+.card h2 {
+  font-size: 22px;
+  margin-bottom: 16px;
+}
+
+/* PLAN SUMMARY */
+.plan-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #8b1c2c, #3b0a18);
+  color: #fff;
+  border-radius: 14px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.summary-label {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.summary-sub {
+  display: block;
+  font-size: 11px;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.summary-right {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.amount {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.period {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* SECTION LABEL */
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+  text-align: left;
+  margin-bottom: 12px;
+}
+
+/* UPI APP LIST */
+.upi-app-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.upi-app-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  background: #fafafa;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.upi-app-item:active {
+  background: #fff5f5;
+  border-color: #8b1c2c;
+}
+
+.app-logo-img {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.gpay-img {
+  border-radius: 8px;
+  background: #fff;
+  padding: 4px;
+  border: 1px solid #e8e8e8;
+  width: 80px;
+  height: 46px;
+}
+
+.app-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+}
+
+.app-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1a050b;
+}
+
+.app-sub {
+  font-size: 12px;
+  color: #999;
+}
+
+.app-arrow {
+  font-size: 24px;
+  color: #ccc;
+}
+
+/* SUCCESS OVERLAY */
+.success-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.success-card {
+  background: #fff;
+  border-radius: 24px;
+  padding: 40px 32px;
+  text-align: center;
+  width: 80%;
+  max-width: 320px;
+  animation: popIn 0.35s ease;
+}
+
+@keyframes popIn {
+  from { transform: scale(0.8); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.success-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4caf50, #388e3c);
+  color: #fff;
+  font-size: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+}
+
+.success-card h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a050b;
+  margin-bottom: 8px;
+}
+
+.success-card p {
+  font-size: 13px;
+  color: #888;
+  line-height: 1.6;
+}
+
+.secure-note {
+  font-size: 12px;
+  color: #999;
+  margin-top: 28px;
+  text-align: center;
+}
