@@ -1,58 +1,80 @@
-import { Component, OnDestroy, AfterViewInit } from '@angular/core';
+import { Component, OnDestroy, AfterViewInit, ChangeDetectorRef, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent } from '@ionic/angular/standalone';
+import { FormsModule } from '@angular/forms';
+import { IonContent, IonButton, IonSpinner, ToastController, IonInput, IonItem, IonList, IonLabel } from '@ionic/angular/standalone';
 import { Router } from '@angular/router';
 import * as L from 'leaflet';
+import { MapsService, DistanceMatrixResponse, PlacePrediction } from '../services/maps.service';
 
-interface Order {
+interface VehicleOption {
   id: string;
-  restaurant: string;
-  address: string;
+  type: string;
+  name: string;
+  basePrice: number;
+  pricePerKm: number;
   price: number;
-  tip: number;
-  rating: number;
-  distance: string;
+  eta: string;
+  icon: string;
 }
-
-const ORDER_TIMEOUT = 10;
 
 @Component({
   selector: 'app-home',
   templateUrl: 'home.page.html',
   styleUrls: ['home.page.scss'],
   standalone: true,
-  imports: [CommonModule, IonContent]
+  imports: [CommonModule, FormsModule, IonContent, IonButton, IonSpinner, IonInput, IonItem, IonList, IonLabel]
 })
 export class HomePage implements AfterViewInit, OnDestroy {
-  isOnline = false;
-  UserName = 'Durgaprasad';
+  userName = 'Durgaprasad';
   activeTab = 'home';
 
-  pendingOrder: Order | null = null;
-  countdown = ORDER_TIMEOUT;
+  // UI States
+  viewState: 'searching' | 'selecting' | 'confirming' | 'onTrip' = 'searching';
+  isLoading = false;
+  selectedVehicle: VehicleOption | null = null;
+  pickupLocation = 'My Current Location';
+  destinationLocation = '';
 
+  driver: any = null;
+  otp: string = '';
+  enteredOtp: string = '';
+  tripStatus: 'arriving' | 'arrived' | 'started' = 'arriving';
+  estimatedArrivalMins: number = 3;
+  remainingTripTime: string = '';
+
+  // Search state
+  pickupSearchQuery = '';
+  destinationSearchQuery = '';
+  focusedInput: 'pickup' | 'destination' = 'destination';
+  predictions: PlacePrediction[] = [];
+
+  private pickupCoords: { lat: number; lng: number } | null = null;
+  private destCoords: { lat: number; lng: number } | null = null;
+  private currentCoords: { lat: number; lng: number } | null = null;
+
+  distanceData: DistanceMatrixResponse | null = null;
   private map!: L.Map;
-  private UserMarker!: L.Marker;
+  private userMarker!: L.Marker;
   private watchId: number | null = null;
 
-  private queueIndex = 0;
-  private nextOrderTimer: any;
-  private countdownTimer: any;
-
-  private readonly orderQueue: Order[] = [
-    { id: 'ORD001', restaurant: 'Anna Poorna Hotel',   address: 'No. 12, Anna Street, Chennai',      price: 50,  tip: 20, rating: 4.2, distance: '1.2 km' },
-    { id: 'ORD002', restaurant: 'Saravana Bhavan',     address: 'No. 5, Mount Road, Chennai',         price: 75,  tip: 15, rating: 4.5, distance: '2.4 km' },
-    { id: 'ORD003', restaurant: 'Murugan Idli Shop',   address: 'No. 77, T.Nagar, Chennai',           price: 40,  tip: 10, rating: 4.0, distance: '0.8 km' },
-    { id: 'ORD004', restaurant: 'Anjappar Chettinad',  address: 'No. 3, Velachery Main Road',         price: 90,  tip: 25, rating: 4.3, distance: '3.1 km' },
-    { id: 'ORD005', restaurant: 'Vasanta Bhavan',      address: 'No. 18, OMR Road, Chennai',          price: 60,  tip: 12, rating: 4.1, distance: '1.7 km' },
-    { id: 'ORD006', restaurant: 'Junior Kuppanna',     address: 'No. 9, Arcot Road, Chennai',         price: 110, tip: 30, rating: 4.6, distance: '4.0 km' },
-    { id: 'ORD007', restaurant: 'Ponnusamy Hotel',     address: 'No. 45, Kodambakkam High Road',      price: 85,  tip: 20, rating: 4.2, distance: '2.9 km' },
-    { id: 'ORD008', restaurant: 'Hotel Palmgrove',     address: 'No. 2, Nungambakkam High Road',      price: 130, tip: 35, rating: 4.7, distance: '5.2 km' },
-    { id: 'ORD009', restaurant: 'Mathsya Restaurant',  address: 'No. 31, Egmore High Road, Chennai',  price: 55,  tip: 10, rating: 3.9, distance: '1.0 km' },
-    { id: 'ORD010', restaurant: 'Hot Breads Bakery',   address: 'No. 6, Cathedral Road, Chennai',     price: 45,  tip: 8,  rating: 4.0, distance: '0.6 km' },
+  vehicleOptions: VehicleOption[] = [
+    { id: 'bike', type: 'Bike', name: 'VayGo Bike', basePrice: 20, pricePerKm: 10, price: 0, eta: '', icon: '🏍️' },
+    { id: 'auto', type: 'Auto', name: 'VayGo Auto', basePrice: 30, pricePerKm: 15, price: 0, eta: '', icon: '🛺' },
+    { id: 'car',  type: 'Car',  name: 'VayGo Sedan', basePrice: 50, pricePerKm: 25, price: 0, eta: '', icon: '🚗' },
   ];
 
-  constructor(private router: Router) {}
+  private routeLine: L.Polyline | null = null;
+  private destMarker: L.Marker | null = null;
+  private driverMarker: L.Marker | null = null;
+  private driverToUserRoute: L.Polyline | null = null;
+
+  constructor(
+    private router: Router,
+    private mapsService: MapsService,
+    private cdr: ChangeDetectorRef,
+    private zone: NgZone,
+    private toastCtrl: ToastController
+  ) {}
 
   get greeting(): string {
     const h = new Date().getHours();
@@ -66,7 +88,7 @@ export class HomePage implements AfterViewInit, OnDestroy {
   }
 
   private initMap() {
-    const defaultCoords: L.LatLngTuple = [13.0827, 80.2707]; // Chennai default
+    const defaultCoords: L.LatLngTuple = [13.0827, 80.2707]; // Chennai
 
     this.map = L.map('map', {
       center: defaultCoords,
@@ -75,99 +97,507 @@ export class HomePage implements AfterViewInit, OnDestroy {
       attributionControl: false
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19
+    // Using Google-style map tiles for a more "Google Maps" feel
+    L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: 'Google Maps'
     }).addTo(this.map);
 
-    const icon = L.icon({
-      iconUrl: 'assets/VayGoIcon.png',
-      iconSize: [56, 56],
-      iconAnchor: [28, 56],
-      popupAnchor: [0, -56]
+    const userIcon = L.divIcon({
+      className: 'user-marker-container',
+      html: '<div class="user-marker-dot"></div>',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
     });
 
-    this.UserMarker = L.marker(defaultCoords, { icon }).addTo(this.map);
+    this.userMarker = L.marker(defaultCoords, { icon: userIcon }).addTo(this.map);
 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(pos => {
         const { latitude: lat, longitude: lng } = pos.coords;
-        this.map.setView([lat, lng], 15);
-        this.UserMarker.setLatLng([lat, lng]);
-      });
+        this.zone.run(() => {
+          this.currentCoords = { lat, lng };
+          this.map.setView([lat, lng], 15);
+          this.userMarker.setLatLng([lat, lng]);
+          this.updatePickupAddress(lat, lng);
+          this.cdr.detectChanges();
+        });
+      }, (err) => console.warn('Position error:', err), { enableHighAccuracy: true });
 
       this.watchId = navigator.geolocation.watchPosition(pos => {
         const { latitude: lat, longitude: lng } = pos.coords;
-        this.UserMarker.setLatLng([lat, lng]);
-        this.map.panTo([lat, lng]);
+        this.zone.run(() => {
+          this.currentCoords = { lat, lng };
+          this.userMarker.setLatLng([lat, lng]);
+          if (this.viewState === 'searching') {
+            this.map.panTo([lat, lng]);
+          }
+          this.cdr.detectChanges();
+        });
+      }, (err) => console.warn('Watch error:', err), { enableHighAccuracy: true });
+    }
+
+    // Ensure map takes full container size
+    setTimeout(() => this.map.invalidateSize(), 500);
+  }
+
+  private updatePickupAddress(lat: number, lng: number) {
+    this.mapsService.getAddressFromCoords(lat, lng).subscribe({
+      next: (address) => {
+        this.zone.run(() => {
+          this.pickupLocation = address;
+          this.pickupSearchQuery = address;
+          this.pickupCoords = { lat, lng };
+          this.cdr.detectChanges();
+        });
+      },
+      error: (err) => console.error('Geocoding error:', err)
+    });
+  }
+
+  onSearchInput(event: any, type: 'pickup' | 'destination') {
+    this.focusedInput = type;
+    const val = event.target.value;
+    if (val && val.length > 2) {
+      this.mapsService.searchPlaces(val).subscribe(data => {
+        this.predictions = data;
+      });
+    } else {
+      this.predictions = [];
+    }
+  }
+
+  selectPrediction(prediction: PlacePrediction) {
+    if (this.focusedInput === 'pickup') {
+      this.pickupSearchQuery = prediction.description;
+      this.pickupLocation = prediction.description;
+      this.mapsService.getPlaceDetails(prediction.placeId).subscribe(details => {
+        this.pickupCoords = { lat: details.lat, lng: details.lng };
+        this.checkAndCalculate();
+      });
+    } else {
+      this.destinationSearchQuery = prediction.description;
+      this.destinationLocation = prediction.description;
+      this.mapsService.getPlaceDetails(prediction.placeId).subscribe(details => {
+        this.destCoords = { lat: details.lat, lng: details.lng };
+        this.checkAndCalculate();
+      });
+    }
+    this.predictions = [];
+  }
+
+  private checkAndCalculate() {
+    if (this.pickupCoords && this.destCoords) {
+      const origin = `${this.pickupCoords.lat},${this.pickupCoords.lng}`;
+      this.calculateRide(origin, {
+        lat: this.destCoords.lat,
+        lng: this.destCoords.lng,
+        address: this.destinationLocation
       });
     }
   }
 
-  toggleStatus() {
-    this.isOnline = !this.isOnline;
-    if (this.isOnline) {
-      this.queueIndex = 0;
-      this.scheduleNextOrder(3000);
+  onWhereToClick() {
+    // We don't calculate ride immediately anymore
+    // Just toggle an expanded search state if needed, or focus input
+    this.destinationSearchQuery = '';
+    this.predictions = [];
+  }
+
+  calculateRide(origin: string, destination: any) {
+    const destString = typeof destination === 'string' ? destination : `${destination.lat},${destination.lng}`;
+    const destLabel = typeof destination === 'string' ? destination : destination.address;
+
+    console.log('Calculating ride from:', origin, 'to:', destString);
+    this.isLoading = true;
+    this.destinationLocation = destLabel;
+    this.cdr.detectChanges();
+
+    this.mapsService.getDistanceAndDuration(origin, destString).subscribe({
+      next: (data) => {
+        console.log('Distance data received:', data);
+        this.zone.run(() => {
+          this.distanceData = data;
+          this.remainingTripTime = data.duration;
+          this.updateVehiclePrices(data.distanceValue);
+          this.viewState = 'selecting';
+          this.selectedVehicle = this.vehicleOptions[0];
+          this.isLoading = false;
+
+          // Force map resize check
+          setTimeout(() => this.map.invalidateSize(), 100);
+
+          // DRAW ROUTE ON MAP
+          if (this.map && this.pickupCoords && this.destCoords) {
+            this.drawDestinationRoute();
+          }
+
+          this.cdr.detectChanges();
+        });
+      },
+      error: (err) => {
+        console.error('Map Error Details:', err);
+        this.zone.run(() => {
+          this.isLoading = false;
+          this.cdr.detectChanges();
+          const msg = err.message || JSON.stringify(err);
+          alert(`Route Error: ${msg}`);
+        });
+      }
+    });
+  }
+
+  updateVehiclePrices(meters: number) {
+    const km = meters / 1000;
+    // Use .map to create new references for better change detection
+    this.vehicleOptions = this.vehicleOptions.map(v => ({
+      ...v,
+      price: Math.round(v.basePrice + (v.pricePerKm * km)),
+      eta: this.distanceData ? this.distanceData.duration : '5 min'
+    }));
+  }
+
+  selectVehicle(v: VehicleOption) {
+    this.selectedVehicle = v;
+  }
+
+  confirmBooking() {
+    this.zone.run(() => {
+      this.viewState = 'confirming';
+      this.cdr.detectChanges();
+
+      // Simulate a small delay for "Finding a driver"
+      setTimeout(() => {
+        this.driver = {
+          name: 'Rajesh Kumar',
+          rating: '4.8',
+          vehicleModel: 'White Suzuki Dzire',
+          vehiclePlate: 'TN 01 AB 1234',
+          phone: '+919876543210'
+        };
+        this.otp = '1234'; // In a real app, this would come from backend
+        this.viewState = 'onTrip';
+        this.tripStatus = 'arriving';
+        this.showDriverOnMap();
+        this.cdr.detectChanges();
+      }, 3000);
+    });
+  }
+
+  verifyOtp() {
+    if (this.enteredOtp === this.otp) {
+      this.startTrip();
     } else {
-      this.clearAllTimers();
-      this.pendingOrder = null;
+      this.toastCtrl.create({
+        message: 'Invalid OTP. Please try again.',
+        duration: 2000,
+        color: 'danger',
+        position: 'top'
+      }).then(t => t.present());
     }
   }
 
-  private showOrder() {
-    if (!this.isOnline) return;
-    this.pendingOrder = this.orderQueue[this.queueIndex % this.orderQueue.length];
-    this.queueIndex++;
-    this.startCountdown();
+  private clearMapLayers(keepDriver: boolean = false) {
+    if (this.routeLine) this.map.removeLayer(this.routeLine);
+    if (this.destMarker) this.map.removeLayer(this.destMarker);
+    if (this.driverToUserRoute) this.map.removeLayer(this.driverToUserRoute);
+
+    this.routeLine = null;
+    this.destMarker = null;
+    this.driverToUserRoute = null;
+
+    if (!keepDriver && this.driverMarker) {
+      this.map.removeLayer(this.driverMarker);
+      this.driverMarker = null;
+    }
   }
 
-  private scheduleNextOrder(delay = 4000) {
-    this.clearAllTimers();
-    this.nextOrderTimer = setTimeout(() => this.showOrder(), delay);
-  }
+  startTrip() {
+    this.zone.run(() => {
+      this.tripStatus = 'started';
+      this.enteredOtp = '';
 
-  private startCountdown() {
-    clearInterval(this.countdownTimer);
-    this.countdown = ORDER_TIMEOUT;
-    this.countdownTimer = setInterval(() => {
-      this.countdown--;
-      if (this.countdown <= 0) {
-        clearInterval(this.countdownTimer);
-        this.pendingOrder = null;
-        this.scheduleNextOrder(2000);
+      // Clear only arrival-specific layers, KEEP the driver/vehicle marker
+      this.clearMapLayers(true);
+
+      // Draw the road route to the final destination
+      this.drawDestinationRoute(true);
+
+      // Start the simulation from pickup to destination
+      if (this.destCoords && (this.pickupCoords || this.currentCoords)) {
+        const start = this.pickupCoords || this.currentCoords;
+        if (this.driverMarker && start) {
+          this.driverMarker.setLatLng([start.lat, start.lng]);
+          this.simulateDriverMovement(
+            start.lat,
+            start.lng,
+            this.destCoords.lat,
+            this.destCoords.lng
+          );
+        }
       }
-    }, 1000);
+
+      this.toastCtrl.create({
+        message: 'Trip started! Heading to destination.',
+        duration: 2000,
+        color: 'success',
+        position: 'top'
+      }).then(t => t.present());
+
+      this.cdr.detectChanges();
+    });
   }
 
-  private clearAllTimers() {
-    clearTimeout(this.nextOrderTimer);
-    clearInterval(this.countdownTimer);
+  private drawDestinationRoute(isDuringTrip: boolean = false) {
+    if (!this.pickupCoords || !this.destCoords) return;
+
+    const origin = `${this.pickupCoords.lat},${this.pickupCoords.lng}`;
+    const destString = `${this.destCoords.lat},${this.destCoords.lng}`;
+
+    this.mapsService.getDirections(origin, destString).subscribe({
+      next: (polylineStr) => {
+        this.zone.run(() => {
+          // If we are starting the trip, we keep the driver marker
+          this.clearMapLayers(isDuringTrip);
+
+          const destCoords: L.LatLngExpression = [this.destCoords!.lat, this.destCoords!.lng];
+          this.destMarker = L.marker(destCoords)
+            .addTo(this.map)
+            .bindPopup(this.destinationLocation)
+            .openPopup();
+
+          const points = this.decodePolyline(polylineStr);
+          this.routeLine = L.polyline(points, {
+            color: '#8b1c2c',
+            weight: 6,
+            opacity: 0.8,
+            lineJoin: 'round'
+          }).addTo(this.map);
+
+          // Fit bounds with enough padding for the "Trip Progress" UI at the bottom
+          this.map.fitBounds(this.routeLine.getBounds(), {
+            paddingTopLeft: [50, 50],
+            paddingBottomRight: [50, 350]
+          });
+          this.cdr.detectChanges();
+        });
+      }
+    });
   }
 
-  acceptOrder() {
-    this.clearAllTimers();
-    this.pendingOrder = null;
-    this.scheduleNextOrder(5000);
+  completeTrip() {
+    this.toastCtrl.create({
+      message: 'You have reached your destination!',
+      duration: 3000,
+      color: 'dark',
+      position: 'middle'
+    }).then(t => t.present());
+    this.cancelBooking();
   }
 
-  cancelOrder() {
-    this.clearAllTimers();
-    this.pendingOrder = null;
-    this.scheduleNextOrder(2000);
+  cancelBooking() {
+    this.viewState = 'searching';
+    this.destinationLocation = '';
+    this.destinationSearchQuery = '';
+    this.selectedVehicle = null;
+    this.destCoords = null;
+
+    if (this.routeLine) {
+      this.map.removeLayer(this.routeLine);
+      this.routeLine = null;
+    }
+    if (this.destMarker) {
+      this.map.removeLayer(this.destMarker);
+      this.destMarker = null;
+    }
+    if (this.driverMarker) {
+      this.map.removeLayer(this.driverMarker);
+      this.driverMarker = null;
+    }
+
+    if (this.currentCoords) {
+      this.map.setView([this.currentCoords.lat, this.currentCoords.lng], 15);
+    }
+    this.cdr.detectChanges();
+  }
+
+  private showDriverOnMap(targetCoords?: {lat: number, lng: number}) {
+    if (!this.map) return;
+
+    // If target is provided, we move toward it (the trip)
+    // Otherwise, we use default simulation for arrival
+    const startPos = targetCoords ? (this.pickupCoords || this.currentCoords) : null;
+    const endPos = targetCoords || (this.currentCoords || this.pickupCoords);
+
+    if (!endPos) return;
+
+    let driverLat, driverLng;
+
+    if (targetCoords && startPos) {
+      // Starting trip: driver is at pickup
+      driverLat = startPos.lat;
+      driverLng = startPos.lng;
+    } else {
+      // Arriving: driver is far away
+      driverLat = endPos.lat + (Math.random() > 0.5 ? 0.007 : -0.007);
+      driverLng = endPos.lng + (Math.random() > 0.5 ? 0.007 : -0.007);
+    }
+
+    const driverIcon = L.divIcon({
+      className: 'driver-marker-container',
+      html: `<div class="driver-marker-icon">${this.selectedVehicle?.icon || '🚗'}</div>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    });
+
+    if (this.driverMarker) this.map.removeLayer(this.driverMarker);
+    this.driverMarker = L.marker([driverLat, driverLng], { icon: driverIcon }).addTo(this.map);
+
+    if (!targetCoords) {
+      // Draw arrival route (Green)
+      const driverOrigin = `${driverLat},${driverLng}`;
+      const userDest = `${endPos.lat},${endPos.lng}`;
+
+      this.mapsService.getDirections(driverOrigin, userDest).subscribe({
+        next: (polylineStr) => {
+          this.zone.run(() => {
+            if (this.driverToUserRoute) this.map.removeLayer(this.driverToUserRoute);
+            const points = this.decodePolyline(polylineStr);
+            this.driverToUserRoute = L.polyline(points, {
+              color: '#4CAF50',
+              weight: 5,
+              opacity: 0.7,
+              dashArray: '10, 10'
+            }).addTo(this.map);
+
+            this.map.fitBounds(this.driverToUserRoute.getBounds(), {
+              paddingTopLeft: [50, 150],
+              paddingBottomRight: [50, 350]
+            });
+          });
+        }
+      });
+    }
+
+    // Simulate real-time movement toward target
+    this.simulateDriverMovement(driverLat, driverLng, endPos.lat, endPos.lng);
+  }
+
+  private simulateDriverMovement(startLat: number, startLng: number, endLat: number, endLng: number) {
+    let currentLat = startLat;
+    let currentLng = startLng;
+    const steps = 50; // Reduced steps for faster simulation in demo
+    const latStep = (endLat - startLat) / steps;
+    const lngStep = (endLng - startLng) / steps;
+    let currentStep = 0;
+
+    const interval = setInterval(() => {
+      if (this.viewState !== 'onTrip') {
+        clearInterval(interval);
+        return;
+      }
+
+      if (currentStep >= steps) {
+        clearInterval(interval);
+        this.zone.run(() => {
+          if (this.tripStatus === 'arriving') {
+            this.tripStatus = 'arrived';
+            this.toastCtrl.create({
+              message: 'Your driver has arrived!',
+              duration: 2500,
+              color: 'success',
+              position: 'top'
+            }).then(t => t.present());
+          }
+          this.cdr.detectChanges();
+        });
+        return;
+      }
+
+      currentLat += latStep;
+      currentLng += lngStep;
+      currentStep++;
+
+      // Update estimated minutes based on remaining steps
+      if (this.tripStatus === 'arriving') {
+        const remainingSteps = steps - currentStep;
+        // Map steps to roughly 3 to 1 mins
+        this.estimatedArrivalMins = Math.max(1, Math.ceil((remainingSteps / steps) * 3));
+      }
+
+      if (this.tripStatus === 'started' && this.distanceData) {
+        const remainingSteps = steps - currentStep;
+        const totalSeconds = this.distanceData.durationValue;
+        const remainingSeconds = Math.round((remainingSteps / steps) * totalSeconds);
+        const mins = Math.ceil(remainingSeconds / 60);
+        this.remainingTripTime = mins > 0 ? `${mins} mins` : 'Arriving';
+      }
+
+      if (this.driverMarker) {
+        this.driverMarker.setLatLng([currentLat, currentLng]);
+
+        // Keep bounds updated occasionally
+        if (currentStep % 20 === 0 && this.currentCoords) {
+          const bounds = L.latLngBounds([
+            [this.currentCoords.lat, this.currentCoords.lng],
+            [currentLat, currentLng]
+          ]);
+          this.map.fitBounds(bounds, {
+            paddingTopLeft: [50, 150],
+            paddingBottomRight: [50, 350]
+          });
+        }
+      }
+    }, 1000); // Update every second
   }
 
   setTab(tab: string) { this.activeTab = tab; }
 
+  private decodePolyline(encoded: string): L.LatLngTuple[] {
+    const points: L.LatLngTuple[] = [];
+    let index = 0, len = encoded.length;
+    let lat = 0, lng = 0;
+
+    while (index < len) {
+      let b, shift = 0, result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      points.push([lat / 1e5, lng / 1e5]);
+    }
+    return points;
+  }
+
   logout() {
-    this.clearAllTimers();
     if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
     localStorage.removeItem('token');
     this.router.navigate(['/login']);
   }
 
   ngOnDestroy() {
-    this.clearAllTimers();
     if (this.watchId !== null) navigator.geolocation.clearWatch(this.watchId);
     if (this.map) this.map.remove();
+  }
+
+  recenterMap() {
+    if (this.map && this.currentCoords) {
+      this.map.invalidateSize();
+      this.map.setView([this.currentCoords.lat, this.currentCoords.lng], 16, { animate: true });
+    }
   }
 }

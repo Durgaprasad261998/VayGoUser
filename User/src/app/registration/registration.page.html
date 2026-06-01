@@ -12,12 +12,8 @@
       <div class="step active">1</div>
       <div class="line"></div>
       <div class="step">2</div>
-      <div class="line"></div>
-      <div class="step">3</div>
-      <div class="line"></div>
-      <div class="step">4</div>
     </div>
-    <div class="step-label">Step 1 of 4 — Personal Info</div>
+    <div class="step-label">Step 1 of 2 — Personal Info</div>
 
     <form [formGroup]="registerForm" (ngSubmit)="onSubmit()">
 
@@ -48,6 +44,38 @@
         <p *ngIf="registerForm.get('mobileNumber')?.errors?.['required']">Mobile number is required</p>
         <p *ngIf="registerForm.get('mobileNumber')?.errors?.['pattern']">Enter valid 10-digit mobile number</p>
       </ion-text>
+
+      <ion-item fill="outline" class="mt-10">
+        <ion-input
+          type="email"
+          formControlName="email"
+          placeholder="Enter your email (optional)">
+        </ion-input>
+      </ion-item>
+      <ion-text color="danger"
+        *ngIf="registerForm.get('email')?.touched && registerForm.get('email')?.invalid">
+        <p>Please enter a valid email address</p>
+      </ion-text>
+
+      <ion-item fill="outline" class="mt-10">
+        <ion-select formControlName="gender" placeholder="Select Gender" interface="popover">
+          <ion-select-option value="male">Male</ion-select-option>
+          <ion-select-option value="female">Female</ion-select-option>
+          <ion-select-option value="other">Other</ion-select-option>
+        </ion-select>
+      </ion-item>
+      <ion-text color="danger"
+        *ngIf="registerForm.get('gender')?.touched && registerForm.get('gender')?.invalid">
+        <p>Gender selection is required</p>
+      </ion-text>
+
+      <ion-item fill="outline" class="mt-10">
+        <ion-input
+          type="text"
+          formControlName="referralCode"
+          placeholder="Referral Code (Optional)">
+        </ion-input>
+      </ion-item>
 
       <ion-button expand="block" class="btn" type="submit">
         Continue

@@ -78,7 +78,8 @@ export class RegOtpPage {
     }
     this.errorMsg = '';
     clearInterval(this.timerRef);
-    this.router.navigate([this.step === 1 ? '/registration/step2' : '/registration/step3']);
+    // Simplified User flow: Always go to Step 2 (Profile Photo) after OTP
+    this.router.navigate(['/registration/step2']);
   }
 
   resendOtp() {

@@ -3,107 +3,231 @@
 
     <!-- HEADER -->
     <div class="header">
-      <img src="assets/VayGoLogoWhite.png" class="header-logo" alt="VayGo" />
-      <div class="header-right">
-        <div class="toggle-wrap" (click)="toggleStatus()">
-          <span class="toggle-label" [class.online]="isOnline">
-            {{ isOnline ? 'Online' : 'Offline' }}
-          </span>
-          <div class="toggle-switch" [class.online]="isOnline">
-            <div class="toggle-thumb"></div>
-          </div>
+      <div class="header-left">
+        <div class="avatar">{{ userName[0] }}</div>
+        <div class="greeting-box">
+          <p class="greet-sub">{{ greeting }}</p>
+          <h2 class="greet-name">{{ userName }}</h2>
         </div>
-        <div class="avatar">{{ UserName[0] }}</div>
       </div>
+      <img src="assets/VayGoLogoWhite.png" class="header-logo" alt="VayGo" />
     </div>
 
-    <!-- GREETING -->
-    <div class="greeting">
-      <p class="greet-sub">{{ greeting }}</p>
-      <h2 class="greet-name">Hey, {{ UserName }}</h2>
-    </div>
-
-    <!-- MAP AREA -->
+    <!-- MAP AREA (FULL BACKGROUND) -->
     <div class="map-area">
       <div id="map"></div>
 
-      <!-- EARN BANNER -->
-      <div class="earn-banner">
-        <img src="assets/VayGoIcon.png" class="earn-logo" alt="VayGo" />
-        <div class="earn-text">
-          <p>Today extra earn</p>
-          <h3>₹ 20 per order</h3>
-        </div>
-      </div>
+      <!-- FLOATING BACK BUTTON (When selecting) -->
+      <button class="back-btn" *ngIf="viewState !== 'searching'" (click)="cancelBooking()">
+        ←
+      </button>
+
+      <!-- LOCATE ME BUTTON -->
+      <button class="locate-btn" (click)="recenterMap()" [class.shifted]="viewState !== 'searching'">
+        🎯
+      </button>
     </div>
 
-    <!-- ORDER CARD -->
-    <div class="order-card" *ngIf="pendingOrder">
-      <div class="order-top">
-        <span class="order-label">Order assign</span>
-        <div class="countdown" [class.urgent]="countdown <= 5">
-          <svg class="countdown-ring" viewBox="0 0 36 36">
-            <circle class="ring-bg" cx="18" cy="18" r="15"/>
-            <circle class="ring-fill" cx="18" cy="18" r="15"
-              [style.stroke-dashoffset]="94.2 - (94.2 * countdown / 10)"/>
-          </svg>
-          <span class="countdown-num">{{ countdown }}</span>
+    <!-- UI OVERLAY -->
+    <div class="bottom-ui-wrapper">
+      <div class="bottom-interface" [class.expanded]="viewState !== 'searching'">
+
+        <!-- LOADING STATE -->
+        <div class="loading-overlay" *ngIf="isLoading">
+          <ion-spinner name="crescent" color="primary"></ion-spinner>
+          <p>Calculating route...</p>
         </div>
-      </div>
-      <div class="order-row">
-        <div class="order-info">
-          <div class="restaurant-name">
-            {{ pendingOrder.restaurant }}
-            <span class="star">⭐ {{ pendingOrder.rating }}</span>
+
+        <!-- SEARCH STATE: "From" and "To" -->
+        <div class="search-section" *ngIf="viewState === 'searching' && !isLoading">
+          <div class="dual-search-container">
+            <div class="search-bar">
+              <span class="dot pickup-dot"></span>
+              <ion-input
+                placeholder="Pick-up location"
+                [(ngModel)]="pickupSearchQuery"
+                (ionInput)="onSearchInput($event, 'pickup')"
+                class="search-input">
+              </ion-input>
+            </div>
+            <div class="search-divider"></div>
+            <div class="search-bar">
+              <span class="dot drop-dot"></span>
+              <ion-input
+                placeholder="Where to?"
+                [(ngModel)]="destinationSearchQuery"
+                (ionInput)="onSearchInput($event, 'destination')"
+                class="search-input">
+              </ion-input>
+            </div>
           </div>
-          <div class="order-addr">{{ pendingOrder.address }}</div>
-          <div class="order-dist">📍 {{ pendingOrder.distance }}</div>
+
+          <!-- Predictions List -->
+          <ion-list *ngIf="predictions.length > 0" class="prediction-list">
+            <ion-item *ngFor="let p of predictions" (click)="selectPrediction(p)" button>
+              <ion-label>
+                <h3>{{ p.description }}</h3>
+              </ion-label>
+            </ion-item>
+          </ion-list>
+
+          <div class="quick-links" *ngIf="predictions.length === 0">
+            <div class="link-item">
+              <span class="icon">🏠</span>
+              <span>Home</span>
+            </div>
+            <div class="link-item">
+              <span class="icon">🏢</span>
+              <span>Work</span>
+            </div>
+          </div>
         </div>
-        <div class="order-price-col">
-          <span class="price">₹{{ pendingOrder.price }}</span>
-          <span class="tip">tip ₹{{ pendingOrder.tip }}</span>
+
+        <!-- SELECTION STATE: Vehicle Options -->
+        <div class="selection-section" *ngIf="viewState === 'selecting' || viewState === 'confirming' || viewState === 'onTrip'">
+          <div class="location-summary" *ngIf="viewState !== 'onTrip'">
+            <div class="loc-row">
+              <div class="dot pickup"></div>
+              <div class="loc-text">{{ pickupLocation }}</div>
+            </div>
+            <div class="loc-row">
+              <div class="dot drop"></div>
+              <div class="loc-text">{{ destinationLocation }}</div>
+            </div>
+            <div class="distance-badge" *ngIf="distanceData">
+              {{ distanceData.distance }} ({{ distanceData.duration }})
+            </div>
+          </div>
+
+          <!-- FINDING DRIVER PULSE -->
+          <div class="booking-container" *ngIf="viewState === 'confirming'">
+              <div class="pulse-container">
+                  <div class="pulse-circle"></div>
+                  <div class="pulse-circle"></div>
+                  <div class="pulse-circle"></div>
+                  <div class="vehicle-pulse-icon">{{ selectedVehicle?.icon }}</div>
+              </div>
+              <h2 class="booking-status">Finding your ride...</h2>
+              <p class="booking-sub">Connecting you to the nearest {{ selectedVehicle?.name }}</p>
+              <ion-button fill="clear" color="danger" (click)="cancelBooking()">Cancel Request</ion-button>
+          </div>
+
+          <!-- ON TRIP / DRIVER ASSIGNED -->
+          <div class="trip-container" *ngIf="viewState === 'onTrip'">
+              <div class="driver-card">
+                  <div class="driver-header">
+                      <div class="driver-avatar">👨🏻‍✈️</div>
+                      <div class="driver-info">
+                          <h3>{{ driver?.name }}</h3>
+                          <p>⭐ {{ driver?.rating }} • {{ driver?.vehicleModel }}</p>
+                      </div>
+                      <div class="plate-number">{{ driver?.vehiclePlate }}</div>
+                  </div>
+
+                  <!-- 1. ARRIVAL STATE: OTP & CALL/CANCEL -->
+                  <div *ngIf="tripStatus !== 'started'">
+                      <div class="otp-container" *ngIf="tripStatus === 'arrived'">
+                          <span class="otp-label">Share this OTP with driver:</span>
+                          <span class="otp-code">{{ otp }}</span>
+
+                          <div class="otp-input-wrapper">
+                            <ion-input
+                              type="number"
+                              placeholder="Enter OTP to start"
+                              [(ngModel)]="enteredOtp"
+                              maxlength="4"
+                              class="otp-verify-input">
+                            </ion-input>
+                            <ion-button (click)="verifyOtp()" fill="solid" class="verify-btn">
+                              Verify
+                            </ion-button>
+                          </div>
+                      </div>
+
+                      <div class="trip-actions">
+                          <div class="action-btn">
+                              <span class="a-icon">📞</span>
+                              <span>Call</span>
+                          </div>
+                          <div class="action-btn">
+                              <span class="a-icon">💬</span>
+                              <span>Message</span>
+                          </div>
+                          <div class="action-btn danger" (click)="cancelBooking()">
+                              <span class="a-icon">❌</span>
+                              <span>Cancel</span>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- 2. STARTED STATE: TRIP PROGRESS -->
+                  <div class="trip-progress-view" *ngIf="tripStatus === 'started'">
+                    <div class="trip-status-bar started">
+                      <div class="status-dot-blue"></div>
+                      <div class="status-msg">On the way to destination</div>
+                    </div>
+
+                    <div class="trip-stats-row">
+                      <div class="stat-box">
+                        <span class="label">Distance</span>
+                        <span class="value">{{ distanceData?.distance }}</span>
+                      </div>
+                      <div class="stat-box">
+                        <span class="label">Time</span>
+                        <span class="value">{{ remainingTripTime }}</span>
+                      </div>
+                    </div>
+
+                    <ion-button expand="block" color="dark" class="finish-btn" (click)="completeTrip()">
+                      Finish Trip
+                    </ion-button>
+                  </div>
+              </div>
+
+                  <div class="trip-status-bar" [class.arrived]="tripStatus === 'arrived'" *ngIf="tripStatus !== 'started'">
+                  <div class="status-dot-green"></div>
+                  <div class="status-msg">
+                    {{ tripStatus === 'arriving' ? 'Driver is arriving in ' + estimatedArrivalMins + ' mins' : 'Driver has arrived at your location' }}
+                  </div>
+              </div>
+          </div>
+
+          <div class="vehicle-list" *ngIf="viewState === 'selecting'">
+            <div class="vehicle-card"
+                 *ngFor="let v of vehicleOptions"
+                 [class.selected]="selectedVehicle?.id === v.id"
+                 (click)="selectVehicle(v)">
+              <div class="v-icon">{{ v.icon }}</div>
+              <div class="v-info">
+                <div class="v-name">{{ v.name }}</div>
+                <div class="v-eta">{{ v.eta }} away</div>
+              </div>
+              <div class="v-price">₹{{ v.price }}</div>
+            </div>
+          </div>
+
+          <ion-button *ngIf="viewState === 'selecting'" expand="block" class="confirm-btn" (click)="confirmBooking()">
+            Book {{ selectedVehicle?.type }}
+          </ion-button>
         </div>
+
       </div>
-      <div class="swipe-row">
-        <button class="accept-btn" (click)="acceptOrder()">
-          <span class="arrow">→</span>
+
+      <!-- BOTTOM NAV (Only in searching state) -->
+      <div class="bottom-nav" *ngIf="viewState === 'searching'">
+        <button class="nav-item" [class.active]="activeTab==='home'" (click)="setTab('home')">
+          <span class="nav-svg">🏠</span>
+          <span class="nav-label">Home</span>
         </button>
-        <span class="swipe-label">Swipe to accept</span>
+        <button class="nav-item" [class.active]="activeTab==='activity'" (click)="setTab('activity')">
+          <span class="nav-svg">🕒</span>
+          <span class="nav-label">Activity</span>
+        </button>
+        <button class="nav-item" [class.active]="activeTab==='account'" (click)="setTab('account')">
+          <span class="nav-svg">👤</span>
+          <span class="nav-label">Account</span>
+        </button>
       </div>
-      <button class="cancel-link" (click)="cancelOrder()">Cancel order</button>
-    </div>
-
-    <!-- OFFLINE PROMPT -->
-    <div class="offline-card" *ngIf="!isOnline">
-      <p class="offline-msg">You are <strong>Offline</strong></p>
-      <p class="offline-sub">Tap the toggle to go online and receive orders</p>
-      <button class="go-online-btn" (click)="toggleStatus()">Go Online</button>
-    </div>
-
-    <!-- WAITING CARD -->
-    <div class="waiting-card" *ngIf="isOnline && !pendingOrder">
-      <div class="pulse-dot"></div>
-      <p class="waiting-msg">Looking for orders…</p>
-    </div>
-
-    <!-- BOTTOM NAV -->
-    <div class="bottom-nav">
-      <button class="nav-item" [class.active]="activeTab==='home'" (click)="setTab('home')">
-        <img src="assets/VayGoLogoWhite.png" class="nav-logo" alt="Home" />
-        <span class="nav-label">Home</span>
-      </button>
-      <button class="nav-item" [class.active]="activeTab==='earning'" (click)="setTab('earning')">
-        <span class="nav-svg">₹</span>
-        <span class="nav-label">Earning</span>
-      </button>
-      <button class="nav-item" [class.active]="activeTab==='notification'" (click)="setTab('notification')">
-        <span class="nav-svg">&#128276;</span>
-        <span class="nav-label">Alerts</span>
-      </button>
-      <button class="nav-item" (click)="logout()">
-        <span class="nav-svg">&#10148;</span>
-        <span class="nav-label">Logout</span>
-      </button>
     </div>
 
   </div>

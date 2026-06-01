@@ -1,4 +1,4 @@
-package com.example.app;
+package com.vaygo.user;
 
 import com.getcapacitor.BridgeActivity;
 

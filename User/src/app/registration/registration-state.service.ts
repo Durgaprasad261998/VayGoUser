@@ -4,17 +4,17 @@ import { Injectable } from '@angular/core';
 export class RegistrationStateService {
   fullName = '';
   mobileNumber = '';
-  aadhaarNumber = '';
+  email = '';
+  gender = '';
+  referralCode = '';
   photo: File | null = null;
-  licence: File | null = null;
-  insurance: File | null = null;
 
   reset() {
     this.fullName = '';
     this.mobileNumber = '';
-    this.aadhaarNumber = '';
+    this.email = '';
+    this.gender = '';
+    this.referralCode = '';
     this.photo = null;
-    this.licence = null;
-    this.insurance = null;
   }
 }
