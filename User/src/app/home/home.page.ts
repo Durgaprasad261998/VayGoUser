@@ -5,6 +5,7 @@ import { IonContent, IonButton, IonSpinner, ToastController, IonInput, IonItem, 
 import { Router } from '@angular/router';
 import * as L from 'leaflet';
 import { MapsService, DistanceMatrixResponse, PlacePrediction } from '../services/maps.service';
+import { ApiService } from '../services/api.service';
 
 interface VehicleOption {
   id: string;
@@ -71,10 +72,21 @@ export class HomePage implements AfterViewInit, OnDestroy {
   constructor(
     private router: Router,
     private mapsService: MapsService,
+    private apiService: ApiService,
     private cdr: ChangeDetectorRef,
     private zone: NgZone,
     private toastCtrl: ToastController
-  ) {}
+  ) {
+    this.loadUserData();
+  }
+
+  private loadUserData() {
+    const data = localStorage.getItem('userData');
+    if (data) {
+      const user = JSON.parse(data);
+      this.userName = user.fullName || 'User';
+    }
+  }
 
   get greeting(): string {
     const h = new Date().getHours();
@@ -262,26 +274,101 @@ export class HomePage implements AfterViewInit, OnDestroy {
   }
 
   confirmBooking() {
+    if (!this.selectedVehicle || !this.currentCoords || !this.destCoords) {
+      this.toastCtrl.create({
+        message: 'Please select a destination and vehicle type.',
+        duration: 2000,
+        color: 'warning'
+      }).then(t => t.present());
+      return;
+    }
+
     this.zone.run(() => {
       this.viewState = 'confirming';
       this.cdr.detectChanges();
 
-      // Simulate a small delay for "Finding a driver"
-      setTimeout(() => {
-        this.driver = {
-          name: 'Rajesh Kumar',
-          rating: '4.8',
-          vehicleModel: 'White Suzuki Dzire',
-          vehiclePlate: 'TN 01 AB 1234',
-          phone: '+919876543210'
-        };
-        this.otp = '1234'; // In a real app, this would come from backend
-        this.viewState = 'onTrip';
-        this.tripStatus = 'arriving';
-        this.showDriverOnMap();
-        this.cdr.detectChanges();
-      }, 3000);
+      const requestBody = {
+        pickupLat: this.currentCoords!.lat,
+        pickupLong: this.currentCoords!.lng,
+        dropLat: this.destCoords!.lat,
+        dropLong: this.destCoords!.lng,
+        pickupAddress: this.pickupLocation,
+        dropAddress: this.destinationLocation,
+        vehicleType: this.selectedVehicle?.name
+      };
+
+      this.apiService.post('ride/request', requestBody).subscribe({
+        next: (res: any) => {
+          console.log('Ride requested:', res);
+          if (res.data && res.data.rideId) {
+            this.pollRideStatus(res.data.rideId);
+          }
+        },
+        error: (err: any) => {
+          console.error('Ride request failed:', err);
+          this.viewState = 'confirming';
+          this.toastCtrl.create({
+            message: 'Failed to request ride. Please try again.',
+            duration: 3000,
+            color: 'danger'
+          }).then(t => t.present());
+        }
+      });
     });
+  }
+
+  private statusPollInterval: any;
+  private currentRideId: number | null = null;
+
+  private pollRideStatus(rideId: number) {
+    this.currentRideId = rideId;
+    if (this.statusPollInterval) clearInterval(this.statusPollInterval);
+
+    this.statusPollInterval = setInterval(() => {
+      this.apiService.get(`ride/status/${rideId}`).subscribe({
+        next: (res: any) => {
+          // Note: The API needs to return the current status and driver info
+          const status = res.rideStatus;
+          const driver = res.driver;
+
+          if (status === 'Accepted' && this.tripStatus !== 'arriving') {
+            this.zone.run(() => {
+              this.driver = {
+                name: driver?.fullName || 'Driver',
+                phone: driver?.mobileNumber || '',
+                rating: '4.8',
+                vehicleModel: 'White Suzuki Dzire',
+                vehiclePlate: 'TN 01 AB 1234'
+              };
+              this.otp = '1234';
+              this.viewState = 'onTrip';
+              this.tripStatus = 'arriving';
+              this.updateDriverMarkerPosition(driver.currentLat, driver.currentLong);
+              this.cdr.detectChanges();
+            });
+          } else if (status === 'Accepted' && this.tripStatus === 'arriving') {
+             this.updateDriverMarkerPosition(driver.currentLat, driver.currentLong);
+          } else if (status === 'Started' && this.tripStatus !== 'started') {
+            this.zone.run(() => {
+              this.tripStatus = 'started';
+              this.startTrip();
+              this.cdr.detectChanges();
+            });
+          } else if (status === 'Completed') {
+            clearInterval(this.statusPollInterval);
+            this.zone.run(() => {
+              this.viewState = 'searching';
+              this.resetMap();
+              this.toastCtrl.create({ message: 'Trip Completed!', duration: 3000, color: 'success' }).then(t => t.present());
+            });
+          }
+        },
+        error: (err: any) => {
+          // If 404, maybe it's not yet in the DB or there's an issue
+          console.warn('Polling error:', err);
+        }
+      });
+    }, 3000);
   }
 
   verifyOtp() {
@@ -419,6 +506,32 @@ export class HomePage implements AfterViewInit, OnDestroy {
       this.map.setView([this.currentCoords.lat, this.currentCoords.lng], 15);
     }
     this.cdr.detectChanges();
+  }
+
+  private updateDriverMarkerPosition(lat: number, lng: number) {
+    if (!this.map) return;
+
+    const driverIcon = L.divIcon({
+      className: 'driver-marker-container',
+      html: `<div class="driver-marker-icon">${this.selectedVehicle?.icon || '🚗'}</div>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    });
+
+    if (!this.driverMarker) {
+      this.driverMarker = L.marker([lat, lng], { icon: driverIcon }).addTo(this.map);
+    } else {
+      this.driverMarker.setLatLng([lat, lng]);
+    }
+
+    // Adjust map to show both user and driver if arriving
+    if (this.tripStatus === 'arriving' && this.currentCoords) {
+      const bounds = L.latLngBounds([
+        [this.currentCoords.lat, this.currentCoords.lng],
+        [lat, lng]
+      ]);
+      this.map.fitBounds(bounds, { padding: [50, 50] });
+    }
   }
 
   private showDriverOnMap(targetCoords?: {lat: number, lng: number}) {
@@ -581,6 +694,20 @@ export class HomePage implements AfterViewInit, OnDestroy {
       points.push([lat / 1e5, lng / 1e5]);
     }
     return points;
+  }
+
+  private resetMap() {
+    this.destinationLocation = '';
+    this.destinationSearchQuery = '';
+    this.selectedVehicle = null;
+    this.destCoords = null;
+    this.driver = null;
+    this.otp = '';
+    this.enteredOtp = '';
+    this.clearMapLayers(false);
+    if (this.currentCoords) {
+      this.map.setView([this.currentCoords.lat, this.currentCoords.lng], 15);
+    }
   }
 
   logout() {
